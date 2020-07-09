@@ -48,7 +48,7 @@ class MBInvertedResBlock(nn.Module):
 
 		if mid_channels > in_channels:
 			self.inverted_bottleneck = nn.Sequential(
-					nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0, bias=False)，
+					nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0, bias=False),
 					nn.BatchNorm2d(mid_channels),
 					act_func(inplace=True)
 				)
@@ -85,9 +85,10 @@ class MBInvertedResBlock(nn.Module):
 
 
 class MobileNetV3_Large(nn.Module):
-	def __init__(self, num_classes=1000, dropout_rate=0.0):
+	def __init__(self, num_classes=1000, dropout_rate=0.0, zero_init_last_bn=False):
 		super(MobileNetV3_Large, self).__init__()
 		self.dropout_rate = dropout_rate
+		self.zero_init_last_bn = zero_init_last_bn
 
 		self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1, bias=False)
 		self.bn1   = nn.BatchNorm2d(16)
@@ -134,11 +135,11 @@ class MobileNetV3_Large(nn.Module):
 		out = self.conv3(out)
 		out = self.hs3(out)
 		out = out.view(out.size(0), -1)
-
 		if self.dropout_rate > 0.0:
 			out = F.dropout(out, p=self.dropout_rate, training=self.training)
-
 		out = self.classifier(out)
+
+		return out
 
 	def _initialization(self):
 		for m in self.modules():
@@ -154,6 +155,12 @@ class MobileNetV3_Large(nn.Module):
 				if m.bias is not None:
 					init.constant_(m.bias, 0)
 
+		if self.zero_init_last_bn:
+			for mname, m in self.named_modules():
+				if isinstance(m, MBInvertedResBlock):
+					if m.has_residual:
+						init.constant_(m.point_linear[1].weight, 0)
+
 	# def _set_bn_param(self, bn_momentum, bn_eps):
 	# 	for m in self.modules():
 	# 		if isinstance(m, nn.BatchNorm2d):
@@ -162,9 +169,10 @@ class MobileNetV3_Large(nn.Module):
 
 
 class MobileNetV3_Small(nn.Module):
-	def __init__(self, num_classes=1000, dropout_rate=0.0):
+	def __init__(self, num_classes=1000, dropout_rate=0.0, zero_init_last_bn=False):
 		super(MobileNetV3_Small, self).__init__()
 		self.dropout_rate = dropout_rate
+		self.zero_init_last_bn = zero_init_last_bn
 
 		self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1, bias=False)
 		self.bn1   = nn.BatchNorm2d(16)
@@ -207,11 +215,11 @@ class MobileNetV3_Small(nn.Module):
 		out = self.conv3(out)
 		out = self.hs3(out)
 		out = out.view(out.size(0), -1)
-
 		if self.dropout_rate > 0.0:
 			out = F.dropout(out, p=self.dropout_rate, training=self.training)
-
 		out = self.classifier(out)
+
+		return out
 
 	def _initialization(self):
 		for m in self.modules():
@@ -226,6 +234,12 @@ class MobileNetV3_Small(nn.Module):
 				init.normal_(m.weight, std=0.001)
 				if m.bias is not None:
 					init.constant_(m.bias, 0)
+
+		if self.zero_init_last_bn:
+			for mname, m in self.named_modules():
+				if isinstance(m, MBInvertedResBlock):
+					if m.has_residual:
+						init.constant_(m.point_linear[1].weight, 0)
 
 	# def _set_bn_param(self, bn_momentum, bn_eps):
 	# 	for m in self.modules():

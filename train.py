@@ -24,6 +24,7 @@ from datasets import ImageList, pil_loader, cv2_loader
 from datasets import get_train_transform, get_val_transform
 from datasets import HybridTrainPipe, HybridValPipe
 from networks import MobileNetV3_Large, MobileNetV3_Small
+from lr_scheduler import LambdaLRWithMin
 
 
 parser = argparse.ArgumentParser(
@@ -39,26 +40,26 @@ parser.add_argument('--save', type=str, default='./checkpoints/', help='model an
 parser.add_argument('--snapshot', type=str, default='', help='checkpoint for reset')
 
 # training hyper-parameters
-parser.add_argument('--print_freq', type=float, default=100, help='print frequency')
+parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
 parser.add_argument('--workers', type=int, default=8, help='number of workers to load dataset (global)')
 parser.add_argument('--epochs', type=int, default=250, help='number of total training epochs')
 parser.add_argument('--warmup_epochs', type=int, default=5, help='number of warmup epochs')
 parser.add_argument('--batch_size', type=int, default=512, help='batch size (global)')
 parser.add_argument('--lr', type=float, default=0.2, help='initial learning rate')
+parser.add_argument('--lr_min', type=float, default=0.0, help='minimum learning rate')
 parser.add_argument('--lr_scheduler', type=str, default='cosine_epoch', help='type of lr scheduler',
-					choices=['linear_epoch', 'linear_batch', 'cosine_epoch', 'cosine_batch', 'step'])
-parser.add_argument('--gamma', type=float, default=0.96, help='lr decay for "step" scheduler')
-parser.add_argument('--step_size', type=int, default=1, help='step size for "step" scheduler')
+					choices=['linear_epoch', 'linear_batch', 'cosine_epoch', 'cosine_batch', 'step_epoch', 'step_batch'])
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay (wd)')
 parser.add_argument('--no_wd_bias_bn', action='store_true', default=False, help='whether to remove wd on bias and bn')
-parser.add_argument('--num_classes', type=int, default=1000, help='class number of training set')
 parser.add_argument('--model', type=str, default='MobileNetV3_Large', help='type of model',
 					choices=['MobileNetV3_Large', 'MobileNetV3_Small'])
+parser.add_argument('--num_classes', type=int, default=1000, help='class number of training set')
 parser.add_argument('--dropout_rate', type=float, default=0.0, help='dropout rate')
+parser.add_argument('--zero_init_last_bn', action='store_true', default=False, help='zero initialize the last bn in each block')
 parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
 parser.add_argument('--trans_mode', type=str, default='tv', help='mode of image transformation (tv/dali)')
-parser.add_argument('--color_jitter', action='store_true', default=False, elp='apply color augmentation or not')
+parser.add_argument('--color_jitter', action='store_true', default=False, help='apply color augmentation or not')
 parser.add_argument('--dali_cpu', action='store_true', default=False, help='runs CPU based DALI pipeline')
 
 # amp and DDP hyper-parameters
@@ -116,7 +117,7 @@ def main():
 		logging.info("args = {}".format(args))
 		logging.info("unparsed_args = {}".format(unparsed))
 		logging.info("distributed = {}".format(args.distributed))
-		logging.info("sync_bn = {}".format(sync_bn))
+		logging.info("sync_bn = {}".format(args.sync_bn))
 		logging.info("opt_level = {}".format(args.opt_level))
 		logging.info("keep_batchnorm_fp32 = {}".format(args.keep_batchnorm_fp32))
 		logging.info("loss_scale = {}".format(args.loss_scale))
@@ -124,9 +125,9 @@ def main():
 
 	# create model
 	if args.model == 'MobileNetV3_Large':
-		model = MobileNetV3_Large(args.num_classes, args.dropout_rate)
+		model = MobileNetV3_Large(args.num_classes, args.dropout_rate, args.zero_init_last_bn)
 	elif args.model == 'MobileNetV3_Small':
-		model = MobileNetV3_Small(args.num_classes, args.dropout_rate)
+		model = MobileNetV3_Small(args.num_classes, args.dropout_rate, args.zero_init_last_bn)
 	else:
 		raise Exception('invalid type of model')
 	if args.sync_bn:
@@ -185,6 +186,7 @@ def main():
 		val_loader   = torch.utils.data.DataLoader(
 							val_dataset,   batch_size=batch_size, num_workers=workers, 
 							pin_memory=True, sampler=val_sampler,   shuffle=False)
+		args.batches_per_epoch = len(train_loader)
 	elif args.trans_mode == 'dali':
 		pipe = HybridTrainPipe(batch_size=batch_size,
 							   num_threads=workers,
@@ -198,6 +200,8 @@ def main():
 							   dali_cpu=args.dali_cpu)
 		pipe.build()
 		train_loader = DALIClassificationIterator(pipe, size=int(pipe.epoch_size("Reader")/args.world_size))
+		args.batches_per_epoch = train_loader._size // train_loader.batch_size
+		args.batches_per_epoch += (train_loader._size % train_loader.batch_size) != 0
 
 		pipe =   HybridValPipe(batch_size=batch_size,
 							   num_threads=workers,
@@ -213,7 +217,6 @@ def main():
 		val_loader   = DALIClassificationIterator(pipe, size=int(pipe.epoch_size("Reader")/args.world_size))
 	else:
 		raise Exception('invalid image transformation mode')
-	args.batches_per_epoch = len(train_loader)
 
 	# define learning rate scheduler
 	scheduler = get_lr_scheduler(optimizer)
@@ -234,14 +237,13 @@ def main():
 		optimizer.load_state_dict(checkpoint['optimizer'])
 		if args.opt_level is not None:
 			amp.load_state_dict(checkpoint['amp'])
-		# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(args.epochs), last_epoch=0)
 		scheduler = get_lr_scheduler(optimizer)
 		for epoch in range(start_epoch):
 			if epoch < args.warmup_epochs:
 				adjust_learning_rate(optimizer, scheduler, epoch, -1)
 				warmup_lr = get_last_lr(optimizer)
 				if args.local_rank == 0:
-					logging.info('Warming-up Epoch: %d, LR: %e', epoch, warmup_lr)
+					logging.info('Epoch: %d, Warming-up lr: %e', epoch, warmup_lr)
 			else:
 				current_lr = get_last_lr(optimizer)
 				if args.local_rank == 0:
@@ -251,10 +253,11 @@ def main():
 				for param_group in optimizer.param_groups:
 					param_group['lr'] = args.lr
 			else:
-				if args.lr_scheduler in ['linear_epoch', 'cosine_epoch', 'step']:
+				if args.lr_scheduler in ['linear_epoch', 'cosine_epoch', 'step_epoch']:
 					adjust_learning_rate(optimizer, scheduler, epoch, -1)
-				if args.lr_scheduler in ['linear_batch', 'cosine_batch']:
-					scheduler.last_step = (epoch + 1) * args.batches_per_epoch
+				if args.lr_scheduler in ['linear_batch', 'cosine_batch', 'step_batch']:
+					for batch_idx in range(args.batches_per_epoch):
+						adjust_learning_rate(optimizer, scheduler, epoch, batch_idx)
 
 	# the main loop
 	for epoch in range(start_epoch, args.epochs):
@@ -262,7 +265,7 @@ def main():
 			adjust_learning_rate(optimizer, scheduler, epoch, -1)
 			warmup_lr = get_last_lr(optimizer)
 			if args.local_rank == 0:
-				logging.info('Warming-up Epoch: %d, LR: %e', epoch, warmup_lr)
+				logging.info('Epoch: %d, Warming-up lr: %e', epoch, warmup_lr)
 		else:
 			current_lr = get_last_lr(optimizer)
 			if args.local_rank == 0:
@@ -415,20 +418,28 @@ def reduce_tensor(tensor):
 def get_lr_scheduler(optimizer):
 	if args.lr_scheduler == 'linear_epoch':
 		total_steps = args.epochs - args.warmup_epochs
-		scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
-						lambda step: (1.0-step/float(total_steps)) if step <= total_steps else 0)
+		lambda_func = lambda step: max(1.0-step/float(total_steps), 0)
+		scheduler = LambdaLRWithMin(optimizer, lambda_func, args.lr_min)
 	elif args.lr_scheduler == 'linear_batch':
 		total_steps = (args.epochs - args.warmup_epochs) * args.batches_per_epoch
-		scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
-						lambda step: (1.0-step/float(total_steps)) if step <= total_steps else 0)
+		lambda_func = lambda step: max(1.0-step/float(total_steps), 0)
+		scheduler = LambdaLRWithMin(optimizer, lambda_func, args.lr_min)
 	elif args.lr_scheduler == 'cosine_epoch':
 		total_steps = args.epochs - args.warmup_epochs
-		scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(total_steps))
+		scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(total_steps), args.lr_min)
 	elif args.lr_scheduler == 'cosine_batch':
 		total_steps = (args.epochs - args.warmup_epochs) * args.batches_per_epoch
-		scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(total_steps))
-	elif args.lr_scheduler == 'step':
-		scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.step_size, args.gamma)
+		scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(total_steps), args.lr_min)
+	elif args.lr_scheduler == 'step_epoch':
+		assert args.lr_min > 0.0, 'the minimum lr must be larger than 0 for "step" lr_scheduler'
+		total_steps = args.epochs - args.warmup_epochs
+		gamma = (args.lr_min / args.lr) ** (1.0 / total_steps)
+		scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma)
+	elif args.lr_scheduler == 'step_batch':
+		assert args.lr_min > 0.0, 'the minimum lr must be larger than 0 for "step" lr_scheduler'
+		total_steps = (args.epochs - args.warmup_epochs) * args.batches_per_epoch
+		gamma = (args.lr_min / args.lr) ** (1.0 / total_steps)
+		scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma)
 	else:
 		raise Exception('invalid type fo lr scheduler')
 
@@ -445,7 +456,7 @@ def adjust_learning_rate(optimizer, scheduler, epoch, batch_idx):
 	batch_idx = -1: adjusts lr per epoch
 	batch_idx >= 0: adjusts lr per batch
 	'''
-	if args.lr_scheduler in ['linear_epoch', 'cosine_epoch', 'step']:
+	if args.lr_scheduler in ['linear_epoch', 'cosine_epoch', 'step_epoch']:
 		if epoch < args.warmup_epochs:
 			if batch_idx == -1:
 				warmup_lr = float(epoch + 1) / (args.warmup_epochs + 1) * args.lr
@@ -455,7 +466,7 @@ def adjust_learning_rate(optimizer, scheduler, epoch, batch_idx):
 			if batch_idx == -1:
 				scheduler.step()
 
-	if args.lr_scheduler in ['linear_batch', 'cosine_batch']:
+	if args.lr_scheduler in ['linear_batch', 'cosine_batch', 'step_batch']:
 		if epoch < args.warmup_epochs:
 			batch_idx = epoch * args.batches_per_epoch + batch_idx
 			total_batches = args.warmup_epochs * args.batches_per_epoch

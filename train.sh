@@ -1,0 +1,23 @@
+CUDA_VISIBLE_DEVICES=2,3 python -u train.py \
+				--train_root "/export2/home/yibo.hu/dataset/ILSVRC2015/Data/CLS-LOC/train/" \
+				--val_root "/export2/home/yibo.hu/dataset/ILSVRC2015/Data/CLS-LOC/val/" \
+				--train_list "/export2/home/yibo.hu/dataset/ILSVRC2015/ILSVRC2015_train_cls.txt" \
+				--val_list "/export2/home/yibo.hu/dataset/ILSVRC2015/ILSVRC2015_val_cls.txt" \
+				--save './checkpoints/' \
+				--snapshot "/export2/home/yibo.hu/project/ImageNet-training/checkpoints/20200709-193354-try/checkpoint.pth.tar" \
+				--workers 8 \
+				--epochs 250 \
+				--warmup_epochs 5 \
+				--batch_size 512 \
+				--lr 0.2 \
+				--lr_min 1e-5 \
+				--lr_scheduler 'step_batch' \
+				--momentum 0.9 \
+				--weight_decay 3e-5 \
+				--model 'MobileNetV3_Small' \
+				--num_classes 1000 \
+				--dropout_rate 0.0 \
+				--label_smooth 0.1 \
+				--trans_mode 'tv' \
+				--note 'try' | tee log.txt
+
