@@ -4,25 +4,41 @@ import torch.nn.functional as F
 from torch.nn import init
 
 
-class hswish(nn.Module):
+class HSwish(nn.Module):
 	def __init__(self, inplace=True):
-		super(hswish, self).__init__()
+		super(HSwish, self).__init__()
 		self.inplace = inplace
 
 	def forward(self, x):
 		out = x * F.relu6(x + 3, inplace=self.inplace) / 6
 		return out
 
-class hsigmoid(nn.Module):
+class HSigmoid(nn.Module):
 	def __init__(self, inplace=True):
-		super(hsigmoid, self).__init__()
+		super(HSigmoid, self).__init__()
 		self.inplace = inplace
 
 	def forward(self, x):
 		out = F.relu6(x + 3, inplace=self.inplace) / 6
 		return out
 
+class Swish(nn.Module):
+	def __init__(self):
+		super(Swish, self).__init__()
+
+	def forward(self, x):
+		out = x * F.sigmoid(x)
+		return out
+
+Sigmoid = nn.Sigmoid
+
+
+hswish = HSwish
+hsigmoid = HSigmoid
+swish = Swish
+sigmoid = Sigmoid
 relu = nn.ReLU
+relu6 = nn.ReLU6
 
 
 class SEModule(nn.Module):
