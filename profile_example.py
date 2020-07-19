@@ -4,7 +4,7 @@ from benchmark import ModelStat, stat
 from benchmark import compute_speed
 
 sys.path.append('..')
-from networks import MobileNetV3_Small
+from networks import MobileNetV3_Small, MobileNetV3_Large
 
 
 model = MobileNetV3_Small()
