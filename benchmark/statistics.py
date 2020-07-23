@@ -42,7 +42,8 @@ def convert_leaf_modules_to_stat_tree(leaf_modules):
 				node.Flops = leaf_module.Flops.numpy()[0]
 				node.ConvFlops = leaf_module.ConvFlops.numpy()[0]
 				node.duration = leaf_module.duration.numpy()[0]
-				node.Memory = leaf_module.Memory.numpy().tolist()
+				node.MemRead = leaf_module.MemRead.numpy()[0]
+				node.MemWrite = leaf_module.MemWrite.numpy()[0]
 	return StatTree(root_node)
 
 

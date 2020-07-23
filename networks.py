@@ -262,3 +262,36 @@ class MobileNetV3_Small(nn.Module):
 	# 		if isinstance(m, nn.BatchNorm2d):
 	# 			m.momentum = bn_momentum
 	# 			m.eps = bn_eps
+
+
+
+class SubSubNetwork(nn.Module):
+	def __init__(self):
+		super(SubSubNetwork, self).__init__()
+		self.conv1 = nn.Conv2d(3, 16, 3, 1, 1, bias=False)
+
+	def forward(self, x):
+		x = self.conv1(x)
+		return x
+
+class SubNetwork(nn.Module):
+	def __init__(self):
+		super(SubNetwork, self).__init__()
+		self.subsubnet = SubSubNetwork()
+		self.conv2 = nn.Conv2d(16, 16, 3, 1, 1, bias=False)
+
+	def forward(self, x):
+		x = self.subsubnet(x)
+		x = self.conv2(x)
+		return x
+
+class Network(nn.Module):
+	def __init__(self):
+		super(Network, self).__init__()
+		self.subnet = SubNetwork()
+		self.conv3 = nn.Conv2d(16, 16, 3, 1, 1, bias=False)
+
+	def forward(self, x):
+		x = self.subnet(x)
+		x = self.conv3(x)
+		return x

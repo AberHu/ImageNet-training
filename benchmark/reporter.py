@@ -32,7 +32,8 @@ def report_format(collected_nodes, brief_report=False):
 		MAdd = node.MAdd
 		Flops = node.Flops
 		ConvFlops = node.ConvFlops
-		mread, mwrite = [i for i in node.Memory]
+		mread = node.MemRead
+		mwrite = node.MemWrite
 		duration = node.duration
 		data.append([name, input_shape, output_shape, parameter_quantity,
 					 inference_memory, MAdd, duration, Flops, ConvFlops, mread, mwrite])

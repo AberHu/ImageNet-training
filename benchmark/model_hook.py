@@ -38,7 +38,8 @@ class ModelHook(object):
 		module.register_buffer('duration', torch.zeros(1).float())
 		module.register_buffer('ConvFlops', torch.zeros(1).long())
 		module.register_buffer('Flops', torch.zeros(1).long())
-		module.register_buffer('Memory', torch.zeros(2).long())
+		module.register_buffer('MemRead', torch.zeros(1).long())
+		module.register_buffer('MemWrite', torch.zeros(1).long())
 
 	def _sub_module_call_hook(self):
 		def wrap_call(module, *input, **kwargs):
@@ -72,7 +73,7 @@ class ModelHook(object):
 				inference_memory *= s
 			# memory += parameters_number  # exclude parameter memory
 			# shown as MB unit
-			inference_memory = inference_memory * 4 / (1024 ** 2)
+			inference_memory = inference_memory * itemsize / (1024 ** 2)
 			module.inference_memory = torch.from_numpy(
 				np.array([inference_memory], dtype=np.float32))
 
@@ -82,27 +83,29 @@ class ModelHook(object):
 				flops, type = compute_flops(module, input[0], output)
 				if type == 'Conv2d':
 					conv_flops = flops
-				Memory = compute_memory(module, input[0], output)
+				memread, memwrite = compute_memory(module, input[0], output)
 			elif len(input) > 1:
 				madd = compute_madd(module, input, output)
 				conv_flops = 0
 				flops, type = compute_flops(module, input, output)
 				if type == 'Conv2d':
 					conv_flops = flops
-				Memory = compute_memory(module, input, output)
+				memread, memwrite = compute_memory(module, input, output)
 			else:  # error
 				madd = 0
 				flops = 0
 				conv_flops = 0
-				Memory = [0, 0]
+				memread, memwrite = [0, 0]
 			module.MAdd = torch.from_numpy(
 				np.array([madd], dtype=np.int64))
 			module.Flops = torch.from_numpy(
 				np.array([flops], dtype=np.int64))
 			module.ConvFlops = torch.from_numpy(
 				np.array([conv_flops], dtype=np.int64))
-			Memory = np.array(Memory, dtype=np.int64) * itemsize
-			module.Memory = torch.from_numpy(Memory)
+			module.MemRead = torch.from_numpy(
+				np.array([memread], dtype=np.int64)*itemsize)
+			module.MemWrite = torch.from_numpy(
+				np.array([memwrite], dtype=np.int64)*itemsize)
 
 			return output
 

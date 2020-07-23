@@ -33,6 +33,3 @@ ms.unhook_model()
 compute_speed(model, (32, 3, 224, 224), 'cuda:0', 1000)
 compute_speed(model, (1, 3, 224, 224), 'cuda:0', 1000)
 compute_speed(model, (1, 3, 224, 224), 'cpu', 1000)
-
-
-#!!! there are 1 bug not fixed: MemWrite(B) has different values with different query_granularity

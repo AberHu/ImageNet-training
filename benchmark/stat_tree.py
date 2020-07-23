@@ -47,7 +47,8 @@ class StatNode(object):
 		self._parameter_quantity = 0
 		self._inference_memory = 0
 		self._MAdd = 0
-		self._Memory = [0, 0]
+		self._MemRead = 0
+		self._MemWrite = 0
 		self._Flops = 0
 		self._ConvFlops = 0
 		self._duration = 0
@@ -162,17 +163,26 @@ class StatNode(object):
 		self._ConvFlops = ConvFlops
 
 	@property
-	def Memory(self):
-		total_Memory = self._Memory
+	def MemRead(self):
+		total_MemRead = self._MemRead
 		for child in self.children:
-			total_Memory[0] += child.Memory[0]
-			total_Memory[1] += child.Memory[1]
-		return total_Memory
+			total_MemRead += child.MemRead
+		return total_MemRead
 
-	@Memory.setter
-	def Memory(self, Memory):
-		assert isinstance(Memory, list)
-		self._Memory = Memory
+	@MemRead.setter
+	def MemRead(self, MemRead):
+		self._MemRead = MemRead
+
+	@property
+	def MemWrite(self):
+		total_MemWrite = self._MemWrite
+		for child in self.children:
+			total_MemWrite += child.MemWrite
+		return total_MemWrite
+
+	@MemWrite.setter
+	def MemWrite(self, MemWrite):
+		self._MemWrite = MemWrite
 
 	@property
 	def duration(self):
