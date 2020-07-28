@@ -42,13 +42,15 @@ relu6 = nn.ReLU6
 
 
 class SEModule(nn.Module):
-	def __init__(self, in_channels, act_func, reduction=4):
+	def __init__(self, in_channels, reduction=4):
 		super(SEModule, self).__init__()
 		self.se = nn.Sequential(
 			nn.AdaptiveAvgPool2d(1),
 			nn.Conv2d(in_channels, in_channels//reduction, kernel_size=1, stride=1, padding=0, bias=True),
-			act_func(inplace=True),
+			nn.BatchNorm2d(in_channels//reduction),
+			nn.ReLU(inplace=True),
 			nn.Conv2d(in_channels//reduction, in_channels, kernel_size=1, stride=1, padding=0, bias=True),
+			nn.BatchNorm2d(in_channels),
 			hsigmoid(inplace=True)
 		)
 
@@ -60,7 +62,7 @@ class MBInvertedResBlock(nn.Module):
 	def __init__(self, in_channels, mid_channels, out_channels, kernel_size=3, stride=1, act_func=relu, with_se=False):
 		super(MBInvertedResBlock, self).__init__()
 		self.has_residual = (in_channels == out_channels) and (stride == 1)
-		self.se = SEModule(mid_channels, act_func) if with_se else None
+		self.se = SEModule(mid_channels) if with_se else None
 
 		if mid_channels > in_channels:
 			self.inverted_bottleneck = nn.Sequential(

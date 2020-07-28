@@ -17,7 +17,7 @@ from nvidia.dali.plugin.pytorch import DALIClassificationIterator
 from apex.parallel import DistributedDataParallel as DDP
 from apex import amp, parallel
 
-from utils  import AverageMeter, accuracy, set_seed
+from utils  import AverageMeter, accuracy, set_seed, EMA
 from utils  import create_exp_dir, save_checkpoint, get_params
 from losses import CrossEntropyLabelSmooth
 from datasets import ImageList, pil_loader, cv2_loader
@@ -61,6 +61,7 @@ parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoot
 parser.add_argument('--trans_mode', type=str, default='tv', help='mode of image transformation (tv/dali)')
 parser.add_argument('--color_jitter', action='store_true', default=False, help='apply color augmentation or not')
 parser.add_argument('--dali_cpu', action='store_true', default=False, help='runs CPU based DALI pipeline')
+parser.add_argument('--ema_decay', type=float, default=0.0, help='whether to use EMA')
 
 # amp and DDP hyper-parameters
 parser.add_argument('--local_rank', type=int, default=0)
@@ -163,6 +164,13 @@ def main():
 	else:
 		model = nn.DataParallel(model)
 
+	# exponential moving average
+	if args.ema_decay > 0.0:
+		ema = EMA(model, args.ema_decay)
+		ema.register()
+	else:
+		ema = None
+
 	# define transform and initialize dataloader
 	batch_size = args.batch_size // args.world_size
 	workers    = args.workers    // args.world_size
@@ -235,6 +243,8 @@ def main():
 		best_acc_top5 = checkpoint['best_acc_top5']
 		model.load_state_dict(checkpoint['model'])
 		optimizer.load_state_dict(checkpoint['optimizer'])
+		if checkpoint['ema'] is not None:
+			ema.load_state_dict(checkpoint['ema'])
 		if args.opt_level is not None:
 			amp.load_state_dict(checkpoint['amp'])
 		scheduler = get_lr_scheduler(optimizer)
@@ -275,11 +285,11 @@ def main():
 			train_sampler.set_epoch(epoch)
 
 		epoch_start = time.time()
-		train_acc, train_obj = train(train_loader, model, criterion, optimizer, scheduler, epoch)
+		train_acc, train_obj = train(train_loader, model, ema, criterion, optimizer, scheduler, epoch)
 		if args.local_rank == 0:
 			logging.info('Train_acc: %f', train_acc)
 
-		val_acc_top1, val_acc_top5, val_obj = validate(val_loader, model, criterion)
+		val_acc_top1, val_acc_top5, val_obj = validate(val_loader, model, ema, criterion)
 		if args.local_rank == 0:
 			logging.info('Val_acc_top1: %f', val_acc_top1)
 			logging.info('Val_acc_top5: %f', val_acc_top5)
@@ -294,6 +304,7 @@ def main():
 			save_checkpoint({
 				'epoch': epoch + 1,
 				'model': model.state_dict(),
+				'ema': ema.state_dict() if ema is not None else None,
 				'best_acc_top1': best_acc_top1,
 				'best_acc_top5': best_acc_top5,
 				'optimizer' : optimizer.state_dict(),
@@ -311,7 +322,7 @@ def main():
 			val_loader.reset()
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, epoch):
+def train(train_loader, model, ema, criterion, optimizer, scheduler, epoch):
 	objs = AverageMeter()
 	top1 = AverageMeter()
 	top5 = AverageMeter()
@@ -342,6 +353,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch):
 		else:
 			loss.backward()
 		optimizer.step()
+		if ema is not None: ema.update()
 		batch_time.update(time.time() - batch_start)
 
 		if batch_idx % args.print_freq == 0:
@@ -371,10 +383,12 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch):
 	return top1.avg, objs.avg
 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model, ema, criterion):
 	objs = AverageMeter()
 	top1 = AverageMeter()
 	top5 = AverageMeter()
+
+	# if ema is not None: ema.apply()
 	model.eval()
 
 	for batch_idx, data in enumerate(val_loader):
@@ -404,6 +418,8 @@ def validate(val_loader, model, criterion):
 			duration = 0 if batch_idx == 0 else time.time() - duration_start
 			duration_start = time.time()
 			logging.info('VALIDATE Step: %03d Objs: %e R1: %f R5: %f Duration: %ds', batch_idx, objs.avg, top1.avg, top5.avg, duration)
+
+		# if ema is not None: ema.restore()
 
 	return top1.avg, top5.avg, objs.avg
 
