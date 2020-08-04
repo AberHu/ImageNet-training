@@ -17,7 +17,7 @@ from nvidia.dali.plugin.pytorch import DALIClassificationIterator
 from apex.parallel import DistributedDataParallel as DDP
 from apex import amp, parallel
 
-from utils  import AverageMeter, accuracy, set_seed, EMA
+from utils  import AverageMeter, EMA, accuracy, set_seed
 from utils  import create_exp_dir, save_checkpoint, get_params
 from losses import CrossEntropyLabelSmooth
 from datasets import ImageList, pil_loader, cv2_loader
@@ -289,7 +289,7 @@ def main():
 		if args.local_rank == 0:
 			logging.info('Train_acc: %f', train_acc)
 
-		val_acc_top1, val_acc_top5, val_obj = validate(val_loader, model, ema, criterion)
+		val_acc_top1, val_acc_top5, val_obj = validate(val_loader, model, criterion)
 		if args.local_rank == 0:
 			logging.info('Val_acc_top1: %f', val_acc_top1)
 			logging.info('Val_acc_top5: %f', val_acc_top5)
@@ -383,12 +383,11 @@ def train(train_loader, model, ema, criterion, optimizer, scheduler, epoch):
 	return top1.avg, objs.avg
 
 
-def validate(val_loader, model, ema, criterion):
+def validate(val_loader, model, criterion):
 	objs = AverageMeter()
 	top1 = AverageMeter()
 	top5 = AverageMeter()
 
-	# if ema is not None: ema.apply()
 	model.eval()
 
 	for batch_idx, data in enumerate(val_loader):
@@ -418,8 +417,6 @@ def validate(val_loader, model, ema, criterion):
 			duration = 0 if batch_idx == 0 else time.time() - duration_start
 			duration_start = time.time()
 			logging.info('VALIDATE Step: %03d Objs: %e R1: %f R5: %f Duration: %ds', batch_idx, objs.avg, top1.avg, top5.avg, duration)
-
-		# if ema is not None: ema.restore()
 
 	return top1.avg, top5.avg, objs.avg
 

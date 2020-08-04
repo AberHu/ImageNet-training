@@ -93,34 +93,21 @@ class EMA():
 		self.model = model
 		self.decay = decay
 		self.shadow = {}
-		self.backup = {}
 
 	def register(self):
 		for name, state in self.model.state_dict().items():
-			self.shadow[name] = state.data.clone()
+			self.shadow[name] = state.clone()
 
 	def update(self):
 		for name, state in self.model.state_dict().items():
 			assert name in self.shadow
-			new_average = (1.0 - self.decay) * state.data + self.decay * self.shadow[name]
+			new_average = (1.0 - self.decay) * state + self.decay * self.shadow[name]
 			self.shadow[name] = new_average.clone()
 			del new_average
-
-	def apply(self):
-		for name, state in self.model.state_dict().items():
-			assert name in self.shadow
-			self.backup[name] = state.data
-			state.data = self.shadow[name]
-
-	def restore(self):
-		for name, state in self.model.state_dict().items():
-			assert name in self.backup
-			state.data = self.backup[name]
-		self.backup = {}
 
 	def state_dict(self):
 		return self.shadow
 
 	def load_state_dict(self, state_dict):
 		for name, state in state_dict.items():
-			self.shadow[name] = state.data.clone()
+			self.shadow[name] = state.clone()
