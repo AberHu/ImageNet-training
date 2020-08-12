@@ -1,8 +1,8 @@
-CUDA_VISIBLE_DEVICES=1 python -u train.py \
-				--train_root "/export/yibo.hu/dataset/ILSVRC2015/Data/CLS-LOC/train/" \
-				--val_root "/export/yibo.hu/dataset/ILSVRC2015/Data/CLS-LOC/val/" \
-				--train_list "/export/yibo.hu/dataset/ILSVRC2015/ILSVRC2015_train_cls.txt" \
-				--val_list "/export/yibo.hu/dataset/ILSVRC2015/ILSVRC2015_val_cls.txt" \
+CUDA_VISIBLE_DEVICES=0,1 python -u -m torch.distributed.launch --nproc_per_node=2 train.py \
+				--train_root "Your ImageNet Train Set Path" \
+				--val_root "Your ImageNet Val Set Path" \
+				--train_list "ImageNet Train List" \
+				--val_list "ImageNet Val List" \
 				--save './checkpoints/' \
 				--workers 16 \
 				--epochs 250 \
@@ -22,6 +22,6 @@ CUDA_VISIBLE_DEVICES=1 python -u train.py \
 				--color_jitter \
 				--ema_decay 0.9999 \
 				--opt_level 'O1' \
-				--note 'MobileNetV3_Large-e250-we5-bs512-lr0.2-lrm0.0-cos_e-wd3e-5-no_wd-do0.2-ls0.1-tv-coji-ema-ampO1'
+				--note 'try'
 
 
