@@ -1,6 +1,6 @@
 # ImageNet-training
 
-Pytorch ImageNet training codes with various tricks, lr schedulers, distributed training, mixed precision training, DALI dataloader etc.
+Pytorch ImageNet training codes with various tricks, lr schedulers, distributed training, mixed precision training, DALI dataloader etc. We hope this repo can help ImageNet experiments in NAS researches.
 
 ## Train
 ```
